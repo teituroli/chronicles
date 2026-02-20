@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "id": "id_1771590591039_ajdii",
+    "name": "test",
+    "location": "test",
+    "trust": "3",
+    "align": "Unknown",
+    "impression": "tset",
+    "wants": "asdf",
+    "secrets": "asdf",
+    "debts": "asdf",
+    "quotes": "asfd",
+    "suspicious": "asdf",
+    "tags": ""
+  }
+]
