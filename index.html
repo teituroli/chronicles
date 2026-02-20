@@ -1942,7 +1942,902 @@ function trustStars(n) { /* unchanged */ }
 function emptyState(icon, title, sub, btnLabel, btnFn) { /* unchanged */ }
 
 // All the page-specific functions (sessions, npcs, creatures, …) are unchanged
-// … (copy everything from your original file starting from "SESSIONS" down to the end)
+
+// ══════════════════════════════════════════
+//  SESSIONS
+// ══════════════════════════════════════════
+
+let sessionFilter = '';
+
+function filterSessions(v) {
+  sessionFilter = v.toLowerCase();
+  renderSessions();
+}
+
+function openSessionModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.session = id;
+  document.getElementById('session-modal-title').textContent = id ? 'Edit Session' : 'New Session';
+  const s = id ? state.data.sessions.find(x => x.id === id) : null;
+  const nextNum = (state.data.sessions.length > 0 ?
+    Math.max(...state.data.sessions.map(s => s.num || 0)) + 1 : 1);
+  document.getElementById('s-num').value = s?.num ?? nextNum;
+  document.getElementById('s-date').value = s?.date ?? '';
+  document.getElementById('s-location').value = s?.location ?? '';
+  document.getElementById('s-present').value = s?.present ?? '';
+  document.getElementById('s-narrative').value = s?.narrative ?? '';
+  document.getElementById('s-discoveries').value = s?.discoveries ?? '';
+  document.getElementById('s-npcs').value = s?.npcs ?? '';
+  document.getElementById('s-creatures').value = s?.creatures ?? '';
+  document.getElementById('s-loot').value = s?.loot ?? '';
+  document.getElementById('s-questions').value = s?.questions ?? '';
+  document.getElementById('s-tags').value = s?.tags ?? '';
+  openModal('modal-session');
+}
+
+async function saveSession() {
+  const id = editingId.session;
+  const obj = {
+    id: id || uid(),
+    num: parseInt(document.getElementById('s-num').value) || 0,
+    date: document.getElementById('s-date').value.trim(),
+    location: document.getElementById('s-location').value.trim(),
+    present: document.getElementById('s-present').value.trim(),
+    narrative: document.getElementById('s-narrative').value.trim(),
+    discoveries: document.getElementById('s-discoveries').value.trim(),
+    npcs: document.getElementById('s-npcs').value.trim(),
+    creatures: document.getElementById('s-creatures').value.trim(),
+    loot: document.getElementById('s-loot').value.trim(),
+    questions: document.getElementById('s-questions').value.trim(),
+    tags: document.getElementById('s-tags').value.trim(),
+    created: id ? (state.data.sessions.find(x => x.id === id)?.created || new Date().toISOString()) : new Date().toISOString()
+  };
+
+  if (id) {
+    const idx = state.data.sessions.findIndex(x => x.id === id);
+    state.data.sessions[idx] = obj;
+  } else {
+    state.data.sessions.push(obj);
+  }
+
+  state.data.sessions.sort((a, b) => b.num - a.num);
+  await saveData('sessions');
+  closeModal('modal-session');
+  renderSessions();
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this session?')) return;
+  state.data.sessions = state.data.sessions.filter(x => x.id !== id);
+  await saveData('sessions');
+  renderSessions();
+}
+
+function viewSession(id) {
+  const s = state.data.sessions.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('detail-modal-title').textContent = `Session #${s.num}`;
+
+  function section(icon, label, content) {
+    if (!content) return '';
+    return `<div class="detail-section">
+      <div class="detail-label">${icon} ${label}</div>
+      <div class="detail-value">${escHtml(content)}</div>
+    </div>`;
+  }
+
+  document.getElementById('detail-modal-body').innerHTML = `
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <span class="badge badge-yellow">Session #${s.num}</span>
+      ${s.date ? `<span class="badge badge-gray">${escHtml(s.date)}</span>` : ''}
+      ${s.location ? `<span class="badge badge-purple">📍 ${escHtml(s.location)}</span>` : ''}
+      ${s.present ? `<span class="badge badge-green">👥 ${escHtml(s.present)}</span>` : ''}
+    </div>
+    ${section('📝','What Happened', s.narrative)}
+    ${section('🧠','Discoveries', s.discoveries)}
+    ${section('👥','NPCs Met', s.npcs)}
+    ${section('👹','Creatures', s.creatures)}
+    ${section('💰','Loot', s.loot)}
+    ${section('❓','Unanswered Questions', s.questions)}
+    ${s.tags ? `<div class="detail-section"><div class="detail-label">Tags</div><div>${tagsHTML(s.tags)}</div></div>` : ''}
+  `;
+
+  document.getElementById('detail-modal-footer').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal('modal-detail')">Close</button>
+    <button class="btn btn-ghost" onclick="closeModal('modal-detail');openSessionModal('${id}')">Edit</button>
+    <button class="btn btn-danger" onclick="closeModal('modal-detail');deleteSession('${id}')">Delete</button>
+  `;
+  openModal('modal-detail');
+}
+
+function renderSessions() {
+  const el = document.getElementById('sessions-list');
+  let sessions = state.data.sessions;
+  if (sessionFilter) {
+    sessions = sessions.filter(s =>
+      (s.narrative||'').toLowerCase().includes(sessionFilter) ||
+      (s.location||'').toLowerCase().includes(sessionFilter) ||
+      (s.tags||'').toLowerCase().includes(sessionFilter)
+    );
+  }
+
+  if (!sessions.length) {
+    el.innerHTML = emptyState('📖','No sessions yet','Start logging your first session','+ New Session','openSessionModal()');
+    return;
+  }
+
+  el.innerHTML = sessions.map(s => `
+    <div class="card" onclick="viewSession('${s.id}')">
+      <div class="card-top">
+        <div>
+          <div class="card-title">Session #${s.num}</div>
+          <div class="card-meta">${s.date || 'No in-game date'} • ${s.location || 'Unknown location'}</div>
+        </div>
+        <span class="badge badge-purple">#${s.num}</span>
+      </div>
+      <div class="card-body">${escHtml((s.narrative||'').slice(0,160))}${(s.narrative||'').length > 160 ? '…' : ''}</div>
+      ${s.tags ? `<div style="margin-top:8px">${tagsHTML(s.tags)}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="event.stopPropagation();openSessionModal('${s.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="event.stopPropagation();deleteSession('${s.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  NPCs
+// ══════════════════════════════════════════
+
+let npcFilter = '';
+
+function filterNPCs(v) {
+  npcFilter = v.toLowerCase();
+  renderNPCs();
+}
+
+function openNPCModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.npc = id;
+  document.getElementById('npc-modal-title').textContent = id ? 'Edit NPC' : 'Add NPC';
+  const n = id ? state.data.npcs.find(x => x.id === id) : null;
+  ['name','location','impression','wants','secrets','debts','quotes','suspicious','tags'].forEach(f => {
+    document.getElementById('n-' + f).value = n?.[f] ?? '';
+  });
+  document.getElementById('n-trust').value = n?.trust ?? '3';
+  document.getElementById('n-align').value = n?.align ?? 'Unknown';
+  openModal('modal-npc');
+}
+
+async function saveNPC() {
+  const id = editingId.npc;
+  const obj = {
+    id: id || uid(),
+    name: document.getElementById('n-name').value.trim(),
+    location: document.getElementById('n-location').value.trim(),
+    trust: document.getElementById('n-trust').value,
+    align: document.getElementById('n-align').value,
+    impression: document.getElementById('n-impression').value.trim(),
+    wants: document.getElementById('n-wants').value.trim(),
+    secrets: document.getElementById('n-secrets').value.trim(),
+    debts: document.getElementById('n-debts').value.trim(),
+    quotes: document.getElementById('n-quotes').value.trim(),
+    suspicious: document.getElementById('n-suspicious').value.trim(),
+    tags: document.getElementById('n-tags').value.trim()
+  };
+
+  if (!obj.name) return alert('Name required');
+  if (id) state.data.npcs[state.data.npcs.findIndex(x => x.id === id)] = obj;
+  else state.data.npcs.push(obj);
+  await saveData('npcs');
+  closeModal('modal-npc');
+  renderNPCs();
+}
+
+async function deleteNPC(id) {
+  if (!confirm('Delete this NPC?')) return;
+  state.data.npcs = state.data.npcs.filter(x => x.id !== id);
+  await saveData('npcs');
+  renderNPCs();
+}
+
+const alignBadge = { Ally:'badge-green', Neutral:'badge-gray', Rival:'badge-yellow', Threat:'badge-red', Unknown:'badge-purple' };
+
+function renderNPCs() {
+  const el = document.getElementById('npcs-list');
+  const alignFilter = document.getElementById('npc-filter-align')?.value || '';
+  let npcs = state.data.npcs;
+  if (npcFilter) npcs = npcs.filter(n => (n.name||'').toLowerCase().includes(npcFilter) || (n.location||'').toLowerCase().includes(npcFilter));
+  if (alignFilter) npcs = npcs.filter(n => n.align === alignFilter);
+
+  if (!npcs.length) {
+    el.innerHTML = emptyState('👥','No NPCs tracked','Add the characters you\'ve met','+ Add NPC','openNPCModal()');
+    return;
+  }
+
+  el.innerHTML = npcs.map(n => `
+    <div class="card">
+      <div class="card-top">
+        <div>
+          <div class="card-title">${escHtml(n.name)}</div>
+          <div class="card-meta">📍 ${escHtml(n.location||'Unknown')}</div>
+        </div>
+        <span class="badge ${alignBadge[n.align]||'badge-gray'}">${n.align}</span>
+      </div>
+      <div class="trust-stars">${trustStars(parseInt(n.trust)||3)}</div>
+      ${n.impression ? `<div class="card-body" style="margin-top:8px">${escHtml(n.impression.slice(0,120))}${n.impression.length>120?'…':''}</div>` : ''}
+      ${n.quotes ? `<div class="quote-item" style="margin-top:10px"><div class="quote-text">${escHtml(n.quotes.split('\n')[0])}</div></div>` : ''}
+      ${n.tags ? `<div style="margin-top:8px">${tagsHTML(n.tags)}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openNPCModal('${n.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteNPC('${n.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  CREATURES
+// ══════════════════════════════════════════
+
+function openCreatureModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.creature = id;
+  document.getElementById('creature-modal-title').textContent = id ? 'Edit Creature' : 'Add Creature';
+  const c = id ? state.data.creatures.find(x => x.id === id) : null;
+  ['name','location','abilities','weaknesses','tactics','outcome','tags'].forEach(f => {
+    document.getElementById('cr-' + f).value = c?.[f] ?? '';
+  });
+  document.getElementById('cr-hostile').value = c?.hostile ?? 'Hostile';
+  document.getElementById('cr-survived').value = c?.survived ?? 'Yes';
+  openModal('modal-creature');
+}
+
+async function saveCreature() {
+  const id = editingId.creature;
+  const obj = {
+    id: id || uid(),
+    name: document.getElementById('cr-name').value.trim(),
+    location: document.getElementById('cr-location').value.trim(),
+    hostile: document.getElementById('cr-hostile').value,
+    survived: document.getElementById('cr-survived').value,
+    abilities: document.getElementById('cr-abilities').value.trim(),
+    weaknesses: document.getElementById('cr-weaknesses').value.trim(),
+    tactics: document.getElementById('cr-tactics').value.trim(),
+    outcome: document.getElementById('cr-outcome').value.trim(),
+    tags: document.getElementById('cr-tags').value.trim()
+  };
+  if (!obj.name) return alert('Name required');
+  if (id) state.data.creatures[state.data.creatures.findIndex(x => x.id === id)] = obj;
+  else state.data.creatures.push(obj);
+  await saveData('creatures');
+  closeModal('modal-creature');
+  renderCreatures();
+}
+
+async function deleteCreature(id) {
+  if (!confirm('Delete?')) return;
+  state.data.creatures = state.data.creatures.filter(x => x.id !== id);
+  await saveData('creatures');
+  renderCreatures();
+}
+
+function filterCreatures(v) {
+  state._creatureFilter = v.toLowerCase();
+  renderCreatures();
+}
+
+function renderCreatures() {
+  const el = document.getElementById('creatures-list');
+  let items = state.data.creatures;
+  const f = state._creatureFilter || '';
+  if (f) items = items.filter(c => (c.name||'').toLowerCase().includes(f));
+
+  if (!items.length) {
+    el.innerHTML = emptyState('👹','Bestiary empty','Log creatures as you encounter them','+ Add Creature','openCreatureModal()');
+    return;
+  }
+
+  const hostileColor = { Hostile:'badge-red', Neutral:'badge-yellow', Friendly:'badge-green' };
+  el.innerHTML = items.map(c => `
+    <div class="card">
+      <div class="card-top">
+        <div>
+          <div class="card-title">${escHtml(c.name)}</div>
+          <div class="card-meta">📍 ${escHtml(c.location||'Unknown')}</div>
+        </div>
+        <span class="badge ${hostileColor[c.hostile]||'badge-gray'}">${c.hostile}</span>
+      </div>
+      <div style="margin-bottom:8px"><span class="badge ${c.survived==='Yes'?'badge-green':'badge-red'}">${c.survived}</span></div>
+      ${c.abilities ? `<div class="detail-label">Abilities</div><div class="card-body">${escHtml(c.abilities.slice(0,120))}…</div>` : ''}
+      ${c.weaknesses ? `<div class="detail-label" style="margin-top:8px">Weaknesses</div><div class="card-body">${escHtml(c.weaknesses.slice(0,80))}…</div>` : ''}
+      ${c.tags ? `<div style="margin-top:8px">${tagsHTML(c.tags)}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openCreatureModal('${c.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteCreature('${c.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  LOCATIONS
+// ══════════════════════════════════════════
+
+function openLocationModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.location = id;
+  document.getElementById('location-modal-title').textContent = id ? 'Edit Location' : 'Add Location';
+  const l = id ? state.data.locations.find(x => x.id === id) : null;
+  ['name','mood','desc','residents','shops','rumors','events','changed','tags'].forEach(f => {
+    document.getElementById('l-' + f).value = l?.[f] ?? '';
+  });
+  openModal('modal-location');
+}
+
+async function saveLocation() {
+  const id = editingId.location;
+  const obj = {
+    id: id || uid(),
+    name: document.getElementById('l-name').value.trim(),
+    mood: document.getElementById('l-mood').value.trim(),
+    desc: document.getElementById('l-desc').value.trim(),
+    residents: document.getElementById('l-residents').value.trim(),
+    shops: document.getElementById('l-shops').value.trim(),
+    rumors: document.getElementById('l-rumors').value.trim(),
+    events: document.getElementById('l-events').value.trim(),
+    changed: document.getElementById('l-changed').value.trim(),
+    tags: document.getElementById('l-tags').value.trim()
+  };
+  if (!obj.name) return alert('Name required');
+  if (id) state.data.locations[state.data.locations.findIndex(x => x.id === id)] = obj;
+  else state.data.locations.push(obj);
+  await saveData('locations');
+  closeModal('modal-location');
+  renderLocations();
+}
+
+async function deleteLocation(id) {
+  if (!confirm('Delete?')) return;
+  state.data.locations = state.data.locations.filter(x => x.id !== id);
+  await saveData('locations');
+  renderLocations();
+}
+
+function filterLocations(v) {
+  state._locFilter = v.toLowerCase();
+  renderLocations();
+}
+
+function renderLocations() {
+  const el = document.getElementById('locations-list');
+  let items = state.data.locations;
+  const f = state._locFilter || '';
+  if (f) items = items.filter(l => (l.name||'').toLowerCase().includes(f) || (l.mood||'').toLowerCase().includes(f));
+
+  if (!items.length) {
+    el.innerHTML = emptyState('🗺️','No locations yet','Log towns, dungeons, and ruins','+ Add Location','openLocationModal()');
+    return;
+  }
+
+  el.innerHTML = items.map(l => `
+    <div class="card">
+      <div class="card-top">
+        <div>
+          <div class="card-title">${escHtml(l.name)}</div>
+          <div class="card-meta">${escHtml(l.mood||'')}</div>
+        </div>
+      </div>
+      ${l.desc ? `<div class="card-body">${escHtml(l.desc.slice(0,140))}${l.desc.length>140?'…':''}</div>` : ''}
+      ${l.changed ? `<div class="card-body" style="margin-top:6px;color:var(--accent3)">⚡ ${escHtml(l.changed.slice(0,80))}…</div>` : ''}
+      ${l.tags ? `<div style="margin-top:8px">${tagsHTML(l.tags)}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openLocationModal('${l.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteLocation('${l.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  QUESTS
+// ══════════════════════════════════════════
+
+function openQuestModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.quest = id;
+  document.getElementById('quest-modal-title').textContent = id ? 'Edit Quest' : 'Add Quest';
+  const q = id ? state.data.quests.find(x => x.id === id) : null;
+  ['title','giver','reward','deadline','objective','tags'].forEach(f => {
+    document.getElementById('q-' + f).value = q?.[f] ?? '';
+  });
+  document.getElementById('q-type').value = q?.type ?? 'Main Story';
+  document.getElementById('q-priority').value = q?.priority ?? 'Medium';
+  document.getElementById('q-risk').value = q?.risk ?? 'Moderate';
+  document.getElementById('q-intent').value = q?.intent ?? 'Yes';
+  document.getElementById('q-status').value = q?.status ?? 'Active';
+  openModal('modal-quest');
+}
+
+async function saveQuest() {
+  const id = editingId.quest;
+  const obj = {
+    id: id || uid(),
+    title: document.getElementById('q-title').value.trim(),
+    type: document.getElementById('q-type').value,
+    priority: document.getElementById('q-priority').value,
+    risk: document.getElementById('q-risk').value,
+    objective: document.getElementById('q-objective').value.trim(),
+    giver: document.getElementById('q-giver').value.trim(),
+    reward: document.getElementById('q-reward').value.trim(),
+    deadline: document.getElementById('q-deadline').value.trim(),
+    intent: document.getElementById('q-intent').value,
+    status: document.getElementById('q-status').value,
+    tags: document.getElementById('q-tags').value.trim()
+  };
+  if (!obj.title) return alert('Title required');
+  if (id) state.data.quests[state.data.quests.findIndex(x => x.id === id)] = obj;
+  else state.data.quests.push(obj);
+  await saveData('quests');
+  closeModal('modal-quest');
+  renderQuests();
+}
+
+async function deleteQuest(id) {
+  if (!confirm('Delete?')) return;
+  state.data.quests = state.data.quests.filter(x => x.id !== id);
+  await saveData('quests');
+  renderQuests();
+}
+
+function renderQuests() {
+  const el = document.getElementById('quests-board');
+  const columns = [
+    { type: 'Main Story', icon: '🧭', label: 'Main Story' },
+    { type: 'Side Quest', icon: '🌿', label: 'Side Quests' },
+    { type: 'Personal Goal', icon: '🧑', label: 'Personal Goals' },
+    { type: 'Mystery', icon: '🧩', label: 'Mysteries' }
+  ];
+
+  if (!state.data.quests.length) {
+    el.innerHTML = emptyState('🎯','Quest board empty','Track your objectives and leads','+ Add Quest','openQuestModal()');
+    return;
+  }
+
+  const priorityColor = { Critical:'badge-red', High:'badge-yellow', Medium:'badge-purple', Low:'badge-green' };
+
+  el.innerHTML = columns.map(col => {
+    const qs = state.data.quests.filter(q => q.type === col.type);
+    return `<div class="quest-column">
+      <div class="quest-column-title">${col.icon} ${col.label} <span class="badge badge-gray" style="margin-left:auto">${qs.length}</span></div>
+      ${qs.length ? qs.map(q => `
+        <div class="quest-item" onclick="openQuestModal('${q.id}')">
+          <div style="display:flex;gap:6px;align-items:flex-start;justify-content:space-between">
+            <div class="quest-item-title">${escHtml(q.title)}</div>
+            <span class="badge ${priorityColor[q.priority]||'badge-gray'}">${q.priority}</span>
+          </div>
+          ${q.giver ? `<div class="card-meta">From: ${escHtml(q.giver)}</div>` : ''}
+          ${q.reward ? `<div class="card-meta">💰 ${escHtml(q.reward)}</div>` : ''}
+          <div style="display:flex;gap:6px;margin-top:8px;justify-content:space-between;align-items:center">
+            <span class="badge badge-gray">${q.status}</span>
+            <button class="btn btn-danger" style="padding:2px 8px;font-size:10px" onclick="event.stopPropagation();deleteQuest('${q.id}')">✕</button>
+          </div>
+        </div>
+      `).join('') : `<div style="color:var(--text3);font-size:12px;text-align:center;padding:12px">None</div>`}
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  INVENTORY
+// ══════════════════════════════════════════
+
+function openItemModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.item = id;
+  document.getElementById('item-modal-title').textContent = id ? 'Edit Item' : 'Add Item';
+  const item = id ? state.data.inventory.find(x => x.id === id) : null;
+  document.getElementById('i-name').value = item?.name ?? '';
+  document.getElementById('i-category').value = item?.category ?? 'Misc';
+  document.getElementById('i-qty').value = item?.qty ?? 1;
+  document.getElementById('i-carrier').value = item?.carrier ?? '';
+  document.getElementById('i-attuned').value = item?.attuned ?? '';
+  document.getElementById('i-notes').value = item?.notes ?? '';
+  openModal('modal-item');
+}
+
+async function saveItem() {
+  const id = editingId.item;
+  const obj = {
+    id: id || uid(),
+    name: document.getElementById('i-name').value.trim(),
+    category: document.getElementById('i-category').value,
+    qty: parseInt(document.getElementById('i-qty').value) || 1,
+    carrier: document.getElementById('i-carrier').value.trim(),
+    attuned: document.getElementById('i-attuned').value.trim(),
+    notes: document.getElementById('i-notes').value.trim()
+  };
+  if (!obj.name) return alert('Name required');
+  if (id) state.data.inventory[state.data.inventory.findIndex(x => x.id === id)] = obj;
+  else state.data.inventory.push(obj);
+  await saveData('inventory');
+  closeModal('modal-item');
+  renderInventory();
+}
+
+async function deleteItem(id) {
+  if (!confirm('Delete?')) return;
+  state.data.inventory = state.data.inventory.filter(x => x.id !== id);
+  await saveData('inventory');
+  renderInventory();
+}
+
+function renderInventory() {
+  const el = document.getElementById('inventory-body');
+  if (!state.data.inventory.length) {
+    el.innerHTML = emptyState('🎒','Empty packs','Track your party\'s equipment and loot','+ Add Item','openItemModal()');
+    return;
+  }
+
+  const categories = [...new Set(state.data.inventory.map(i => i.category))].sort();
+
+  el.innerHTML = categories.map(cat => {
+    const items = state.data.inventory.filter(i => i.category === cat);
+    return `<div class="inventory-section">
+      <div class="section-title">${cat} (${items.length})</div>
+      <table class="inventory-table">
+        <thead><tr>
+          <th>Item</th><th>Qty</th><th>Carrier</th><th>Attuned</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody>${items.map(item => `<tr>
+          <td style="color:var(--text)">${escHtml(item.name)}</td>
+          <td>${item.qty}</td>
+          <td>${escHtml(item.carrier||'Party')}</td>
+          <td>${escHtml(item.attuned||'—')}</td>
+          <td>${escHtml((item.notes||'').slice(0,60))}</td>
+          <td>
+            <button class="btn btn-ghost" style="padding:2px 8px;font-size:10px" onclick="openItemModal('${item.id}')">Edit</button>
+            <button class="btn btn-danger" style="padding:2px 8px;font-size:10px" onclick="deleteItem('${item.id}')">✕</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  THEORIES
+// ══════════════════════════════════════════
+
+function openTheoryModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.theory = id;
+  document.getElementById('theory-modal-title').textContent = id ? 'Edit Theory' : 'Add Theory';
+  const t = id ? state.data.theories.find(x => x.id === id) : null;
+  ['title','theory','evidence','tags'].forEach(f => { document.getElementById('th-' + f).value = t?.[f] ?? ''; });
+  document.getElementById('th-category').value = t?.category ?? 'Villain Theory';
+  document.getElementById('th-confidence').value = t?.confidence ?? 'Plausible';
+  openModal('modal-theory');
+}
+
+async function saveTheory() {
+  const id = editingId.theory;
+  const obj = {
+    id: id || uid(),
+    title: document.getElementById('th-title').value.trim(),
+    category: document.getElementById('th-category').value,
+    theory: document.getElementById('th-theory').value.trim(),
+    evidence: document.getElementById('th-evidence').value.trim(),
+    confidence: document.getElementById('th-confidence').value,
+    tags: document.getElementById('th-tags').value.trim()
+  };
+  if (!obj.title) return alert('Title required');
+  if (id) state.data.theories[state.data.theories.findIndex(x => x.id === id)] = obj;
+  else state.data.theories.push(obj);
+  await saveData('theories');
+  closeModal('modal-theory');
+  renderTheories();
+}
+
+async function deleteTheory(id) {
+  if (!confirm('Delete?')) return;
+  state.data.theories = state.data.theories.filter(x => x.id !== id);
+  await saveData('theories');
+  renderTheories();
+}
+
+const confidenceColor = { 'Wild Guess':'badge-gray','Plausible':'badge-purple','Likely':'badge-yellow','Almost Certain':'badge-yellow','Confirmed':'badge-green' };
+
+function renderTheories() {
+  const el = document.getElementById('theories-list');
+  if (!state.data.theories.length) {
+    el.innerHTML = emptyState('🧠','No theories yet','Document your suspicions and conspiracies','+ Add Theory','openTheoryModal()');
+    return;
+  }
+
+  el.innerHTML = state.data.theories.map(t => `
+    <div class="theory-item">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div class="card-title">${escHtml(t.title)}</div>
+          <div class="card-meta">${t.category}</div>
+        </div>
+        <span class="badge ${confidenceColor[t.confidence]||'badge-gray'}">${t.confidence}</span>
+      </div>
+      ${t.theory ? `<div class="detail-label">Theory</div><div class="card-body">${escHtml(t.theory)}</div>` : ''}
+      ${t.evidence ? `<div class="detail-label" style="margin-top:10px">Evidence</div><div class="card-body">${escHtml(t.evidence)}</div>` : ''}
+      ${t.tags ? `<div style="margin-top:8px">${tagsHTML(t.tags)}</div>` : ''}
+      <div class="card-actions" style="border-top:1px solid var(--border);margin-top:12px;padding-top:10px">
+        <button class="btn btn-ghost" onclick="openTheoryModal('${t.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteTheory('${t.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  PARTY RELATIONSHIPS
+// ══════════════════════════════════════════
+
+function openPartyModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.party = id;
+  document.getElementById('party-modal-title').textContent = id ? 'Edit Relationship' : 'Add Relationship';
+  const p = id ? state.data.party.find(x => x.id === id) : null;
+  document.getElementById('p-char-a').value = p?.charA ?? '';
+  document.getElementById('p-char-b').value = p?.charB ?? '';
+  document.getElementById('p-type').value = p?.type ?? 'Bond';
+  document.getElementById('p-desc').value = p?.desc ?? '';
+  document.getElementById('p-secrets').value = p?.secrets ?? '';
+  openModal('modal-party');
+}
+
+async function saveParty() {
+  const id = editingId.party;
+  const obj = {
+    id: id || uid(),
+    charA: document.getElementById('p-char-a').value.trim(),
+    charB: document.getElementById('p-char-b').value.trim(),
+    type: document.getElementById('p-type').value,
+    desc: document.getElementById('p-desc').value.trim(),
+    secrets: document.getElementById('p-secrets').value.trim()
+  };
+  if (!obj.charA || !obj.charB) return alert('Both characters required');
+  if (id) state.data.party[state.data.party.findIndex(x => x.id === id)] = obj;
+  else state.data.party.push(obj);
+  await saveData('party');
+  closeModal('modal-party');
+  renderParty();
+}
+
+async function deleteParty(id) {
+  if (!confirm('Delete?')) return;
+  state.data.party = state.data.party.filter(x => x.id !== id);
+  await saveData('party');
+  renderParty();
+}
+
+const relTypeBadge = { Bond:'badge-green', Rivalry:'badge-yellow', Romance:'badge-red', Conflict:'badge-red', Debt:'badge-purple', Secret:'badge-gray', Mentor:'badge-purple' };
+
+function renderParty() {
+  const el = document.getElementById('party-list');
+  if (!state.data.party.length) {
+    el.innerHTML = emptyState('🎭','No relationships logged','Track bonds, feuds, and secrets between characters','+ Add Relationship','openPartyModal()');
+    return;
+  }
+
+  el.innerHTML = state.data.party.map(p => `
+    <div class="card">
+      <div class="card-top">
+        <div>
+          <div class="card-title">${escHtml(p.charA)} ↔ ${escHtml(p.charB)}</div>
+        </div>
+        <span class="badge ${relTypeBadge[p.type]||'badge-gray'}">${p.type}</span>
+      </div>
+      ${p.desc ? `<div class="card-body">${escHtml(p.desc.slice(0,120))}…</div>` : ''}
+      ${p.secrets ? `<div class="card-body" style="margin-top:6px;color:var(--text3)">🤫 ${escHtml(p.secrets.slice(0,80))}…</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openPartyModal('${p.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteParty('${p.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  MEMORY LOG
+// ══════════════════════════════════════════
+
+function openMemoryModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.memory = id;
+  document.getElementById('memory-modal-title').textContent = id ? 'Edit Memory' : 'Add Memory';
+  const m = id ? state.data.memory.find(x => x.id === id) : null;
+  document.getElementById('m-type').value = m?.type ?? 'Quote';
+  document.getElementById('m-title').value = m?.title ?? '';
+  document.getElementById('m-desc').value = m?.desc ?? '';
+  document.getElementById('m-attr').value = m?.attr ?? '';
+  document.getElementById('m-session').value = m?.session ?? '';
+  openModal('modal-memory');
+}
+
+async function saveMemory() {
+  const id = editingId.memory;
+  const obj = {
+    id: id || uid(),
+    type: document.getElementById('m-type').value,
+    title: document.getElementById('m-title').value.trim(),
+    desc: document.getElementById('m-desc').value.trim(),
+    attr: document.getElementById('m-attr').value.trim(),
+    session: document.getElementById('m-session').value
+  };
+  if (!obj.title) return alert('Title required');
+  if (id) state.data.memory[state.data.memory.findIndex(x => x.id === id)] = obj;
+  else state.data.memory.push(obj);
+  await saveData('memory');
+  closeModal('modal-memory');
+  renderMemory();
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Delete?')) return;
+  state.data.memory = state.data.memory.filter(x => x.id !== id);
+  await saveData('memory');
+  renderMemory();
+}
+
+const memTypeIcon = { Quote:'💬', Combat:'⚔️', 'Inside Joke':'😂', 'Death Save':'💀', 'Critical Hit':'🎯', Achievement:'🏆', Other:'✨' };
+
+function renderMemory() {
+  const el = document.getElementById('memory-list');
+  if (!state.data.memory.length) {
+    el.innerHTML = emptyState('🔥','No memories yet','Log the moments that built your legend','+ Add Entry','openMemoryModal()');
+    return;
+  }
+
+  const byType = {};
+  state.data.memory.forEach(m => { (byType[m.type] = byType[m.type]||[]).push(m); });
+
+  el.innerHTML = Object.entries(byType).map(([type, items]) => `
+    <div style="margin-bottom:24px">
+      <div class="section-title">${memTypeIcon[type]||'✨'} ${type}</div>
+      ${items.map(m => m.type === 'Quote' ? `
+        <div class="quote-item">
+          <div class="quote-text">${escHtml(m.title)} ${m.desc ? '— ' + escHtml(m.desc.slice(0,80)) : ''}</div>
+          <div class="quote-attr">${m.attr ? '— ' + escHtml(m.attr) : ''}${m.session ? ' • Session #'+m.session : ''}</div>
+          <div style="margin-top:6px">
+            <button class="btn btn-ghost" style="padding:2px 8px;font-size:10px" onclick="openMemoryModal('${m.id}')">Edit</button>
+            <button class="btn btn-danger" style="padding:2px 8px;font-size:10px" onclick="deleteMemory('${m.id}')">✕</button>
+          </div>
+        </div>
+      ` : `
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-top">
+            <div class="card-title">${escHtml(m.title)}</div>
+            ${m.session ? `<span class="badge badge-gray">Session #${m.session}</span>` : ''}
+          </div>
+          ${m.desc ? `<div class="card-body">${escHtml(m.desc)}</div>` : ''}
+          ${m.attr ? `<div class="card-meta" style="margin-top:6px">— ${escHtml(m.attr)}</div>` : ''}
+          <div class="card-actions">
+            <button class="btn btn-ghost" onclick="openMemoryModal('${m.id}')">Edit</button>
+            <button class="btn btn-danger" onclick="deleteMemory('${m.id}')">Delete</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════
+//  REPUTATION
+// ══════════════════════════════════════════
+
+function openReputationModal(id = null) {
+  if (!state.currentCampaign) return alert('Select a campaign first');
+  editingId.rep = id;
+  document.getElementById('rep-modal-title').textContent = id ? 'Edit Faction' : 'Add Faction';
+  const r = id ? state.data.reputation.find(x => x.id === id) : null;
+  document.getElementById('r-name').value = r?.name ?? '';
+  document.getElementById('r-desc').value = r?.desc ?? '';
+  document.getElementById('r-score').value = r?.score ?? 50;
+  document.getElementById('r-notes').value = r?.notes ?? '';
+  openModal('modal-reputation');
+}
+
+async function saveReputation() {
+  const id = editingId.rep;
+  const obj = {
+    id: id || uid(),
+    name: document.getElementById('r-name').value.trim(),
+    desc: document.getElementById('r-desc').value.trim(),
+    score: parseInt(document.getElementById('r-score').value) || 50,
+    notes: document.getElementById('r-notes').value.trim()
+  };
+  if (!obj.name) return alert('Name required');
+  if (id) state.data.reputation[state.data.reputation.findIndex(x => x.id === id)] = obj;
+  else state.data.reputation.push(obj);
+  await saveData('reputation');
+  closeModal('modal-reputation');
+  renderReputation();
+}
+
+async function deleteReputation(id) {
+  if (!confirm('Delete?')) return;
+  state.data.reputation = state.data.reputation.filter(x => x.id !== id);
+  await saveData('reputation');
+  renderReputation();
+}
+
+function repLabel(score) {
+  if (score >= 80) return { label:'Heroic', color:'#47ff87' };
+  if (score >= 60) return { label:'Favored', color:var_accent };
+  if (score >= 40) return { label:'Neutral', color:'var(--text2)' };
+  if (score >= 20) return { label:'Distrusted', color:'orange' };
+  return { label:'Hated', color:'var(--accent3)' };
+}
+
+const var_accent = 'var(--accent)';
+
+function renderReputation() {
+  const el = document.getElementById('reputation-list');
+  if (!state.data.reputation.length) {
+    el.innerHTML = emptyState('🔄','No factions tracked','Monitor how different groups view your party','+ Add Faction','openReputationModal()');
+    return;
+  }
+
+  el.innerHTML = state.data.reputation.map(r => {
+    const info = repLabel(r.score);
+    return `
+    <div class="settings-block" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div class="card-title">${escHtml(r.name)}</div>
+          ${r.desc ? `<div class="card-meta">${escHtml(r.desc.slice(0,80))}</div>` : ''}
+        </div>
+        <span class="badge badge-gray" style="color:${info.color}">${info.label}</span>
+      </div>
+      <div class="rep-bar-wrap">
+        <div class="rep-bar-label">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Reputation</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">${r.score}/100</span>
+        </div>
+        <div class="rep-bar-bg">
+          <div class="rep-bar-fill" style="width:${r.score}%"></div>
+        </div>
+      </div>
+      ${r.notes ? `<div class="card-body">${escHtml(r.notes)}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openReputationModal('${r.id}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteReputation('${r.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════
+
+(async function init() {
+  loadSettings();
+
+  if (GH.owner && GH.repo && GH.token) {
+    setStatus('loading', 'Connecting…');
+    await loadCampaigns();
+  } else {
+    setStatus('err', 'Not configured');
+    document.getElementById('no-campaign').style.display = 'flex';
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  }
+})();
 
 Object.assign(window, {
   showPage, openModal, closeModal, openNewCampaignModal, createCampaign,
