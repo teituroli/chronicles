@@ -1871,6 +1871,7 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
+window.openModal = openModal
 // ══════════════════════════════════════════
 //  GENERIC CRUD HELPERS
 // ══════════════════════════════════════════
@@ -2813,6 +2814,18 @@ function escHtml(str) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   }
 })();
+
+window.showPage = showPage;
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.openNewCampaignModal = openNewCampaignModal;
+window.createCampaign = createCampaign;
+window.saveSettings = saveSettings;
+window.forceSyncAll = forceSyncAll;
+window.openSessionModal = openSessionModal;
+window.saveSession = saveSession;
+window.openNPCModal = openNPCModal;
+window.saveNPC = saveNPC;
 </script>
 </body>
 </html>
