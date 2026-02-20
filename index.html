@@ -2815,17 +2815,41 @@ function escHtml(str) {
   }
 })();
 
-window.showPage = showPage;
-window.openModal = openModal;
-window.closeModal = closeModal;
-window.openNewCampaignModal = openNewCampaignModal;
-window.createCampaign = createCampaign;
-window.saveSettings = saveSettings;
-window.forceSyncAll = forceSyncAll;
-window.openSessionModal = openSessionModal;
-window.saveSession = saveSession;
-window.openNPCModal = openNPCModal;
-window.saveNPC = saveNPC;
+Object.assign(window, {
+  showPage,
+  openModal,
+  closeModal,
+  openNewCampaignModal,
+  createCampaign,
+  saveSettings,
+  forceSyncAll,
+  openSessionModal,
+  saveSession,
+  viewSession,
+  deleteSession,
+  openNPCModal,
+  saveNPC,
+  deleteNPC,
+  openCreatureModal,
+  saveCreature,
+  deleteCreature,
+  openLocationModal,
+  saveLocation,
+  deleteLocation,
+  openQuestModal,
+  saveQuest,
+  deleteQuest,
+  openItemModal,
+  saveItem,
+  openPartyModal,
+  saveParty,
+  openTheoryModal,
+  saveTheory,
+  openMemoryModal,
+  saveMemory,
+  openReputationModal,
+  saveReputation,
+});
 </script>
 </body>
 </html>
