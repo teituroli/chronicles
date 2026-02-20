@@ -1591,9 +1591,10 @@
     </div>
   </div>
 </div>
+
 <script type="module">
 // ══════════════════════════════════════════
-//  GITHUB API LAYER
+//  GITHUB API LAYER + NEW CAMPAIGN SYSTEM
 // ══════════════════════════════════════════
 
 import { t1 } from './setting1.js';
@@ -1635,18 +1636,6 @@ async function ghPut(path, content, message, sha = null) {
   });
 }
 
-async function ghDelete(path, sha, message) {
-  return fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${path}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `token ${GH.token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ message, sha, branch: GH.branch })
-  });
-}
-
 async function readJSON(path) {
   try {
     const res = await ghGet(path);
@@ -1678,11 +1667,11 @@ async function writeJSON(path, data, message) {
   }
 }
 
-// ── NEW HELPERS ─────────────────────────────────────
+// ── NEW: List folders & slugify ─────────────────────────────────
 async function listDir(path) {
   try {
     const res = await ghGet(path);
-    if (res.status === 404 || !res.ok) return [];
+    if (!res.ok || res.status === 404) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch {
@@ -1720,7 +1709,7 @@ let state = {
 let editingId = {};
 
 // ══════════════════════════════════════════
-//  SETTINGS / INIT
+//  SETTINGS
 // ══════════════════════════════════════════
 
 function loadSettings() {
@@ -1740,13 +1729,8 @@ async function saveSettings() {
   GH.branch = document.getElementById('s-branch').value.trim() || 'main';
   GH.token = document.getElementById('s-token').value.trim();
   localStorage.setItem('chronicle_gh', JSON.stringify(GH));
+
   setStatus('loading', 'Testing…');
-
-  if (!GH.owner || !GH.repo || !GH.token) {
-    setStatus('err', 'Fill all fields');
-    return;
-  }
-
   const res = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}`, {
     headers: { Authorization: `token ${GH.token}` }
   });
@@ -1764,7 +1748,7 @@ async function forceSyncAll() {
 }
 
 // ══════════════════════════════════════════
-//  CAMPAIGNS (NEW IMPLEMENTATION)
+//  CAMPAIGNS – now based on real folders
 // ══════════════════════════════════════════
 
 async function loadCampaigns() {
@@ -1773,63 +1757,44 @@ async function loadCampaigns() {
 
   state.campaigns = [];
 
-  // 1. Discover from actual folders (preferred new way)
-  const dirItems = await listDir('campaigns');
-  for (const item of dirItems.filter(i => i.type === 'dir')) {
-    const folder = item.name;
-    const metaRes = await readJSON(`campaigns/${folder}/meta.json`);
-    let meta = metaRes.data;
+  // 1. Discover real folders in /campaigns/
+  const folders = await listDir('campaigns');
+  for (const item of folders.filter(i => i.type === 'dir')) {
+    const folderName = item.name;
+    const meta = await readJSON(`campaigns/${folderName}/meta.json`);
 
-    if (meta) {
+    if (meta.data) {
       state.campaigns.push({
-        id: folder,
-        name: meta.name || folder,
-        system: meta.system || '',
-        party: meta.party || '',
-        desc: meta.desc || '',
-        created: meta.created || ''
+        id: folderName,
+        name: meta.data.name || folderName,
+        system: meta.data.system || '',
+        party: meta.data.party || '',
+        desc: meta.data.desc || '',
+        created: meta.data.created || ''
       });
-      continue;
-    }
-
-    // 2. Fallback for old c_ folders → look up name in campaigns.json
-    const oldRes = await readJSON('campaigns.json');
-    const oldList = oldRes.data || [];
-    const oldCamp = oldList.find(c => c.id === folder);
-    if (oldCamp) {
-      state.campaigns.push({ ...oldCamp });
     } else {
+      // fallback for old c_ folders
       state.campaigns.push({
-        id: folder,
-        name: folder,
+        id: folderName,
+        name: folderName,
         system: '', party: '', desc: '', created: ''
       });
     }
   }
 
-  // 3. Ultimate fallback if no folders exist yet
-  if (state.campaigns.length === 0) {
-    const oldRes = await readJSON('campaigns.json');
-    if (oldRes.data && oldRes.data.length) {
-      state.campaigns = oldRes.data.map(c => ({...c}));
-    }
-  }
-
-  // Sort newest first
+  // 2. Sort newest first
   state.campaigns.sort((a, b) => {
-    const da = a.created ? new Date(a.created) : new Date(0);
-    const db = b.created ? new Date(b.created) : new Date(0);
-    return db - da;
+    return new Date(b.created || 0) - new Date(a.created || 0);
   });
 
   renderCampaignSelect();
   setStatus('ok', 'Connected');
 
-  // Auto-select last used or first campaign
+  // Auto-select last used campaign
   const lastId = localStorage.getItem('chronicle_last_campaign');
   const toSelect = lastId && state.campaigns.find(c => c.id === lastId)
     ? lastId
-    : (state.campaigns[0] ? state.campaigns[0].id : null);
+    : (state.campaigns[0]?.id || null);
 
   if (toSelect) {
     document.getElementById('campaign-select').value = toSelect;
@@ -1856,7 +1821,7 @@ document.getElementById('campaign-select').addEventListener('change', async func
   else {
     state.currentCampaign = null;
     document.getElementById('no-campaign').style.display = 'flex';
-    document.getElementById('main').querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   }
 });
 
@@ -1893,20 +1858,20 @@ async function createCampaign() {
   if (!name) return alert('Campaign name required');
 
   let slug = slugify(name);
-
-  // Avoid collision
-  let exists = false;
-  try {
+  let counter = 1;
+  while (true) {
     const check = await ghGet(`campaigns/${slug}`);
     if (check.ok) {
       const items = await check.json();
-      if (Array.isArray(items) && items.length > 0) exists = true;
+      if (Array.isArray(items) && items.length > 0) {
+        slug = slugify(name) + '-' + counter++;
+        continue;
+      }
     }
-  } catch {}
+    break;
+  }
 
-  if (exists) slug += '-' + Date.now().toString(36).slice(-4);
-
-  const campaignMeta = {
+  const meta = {
     name,
     system: document.getElementById('c-system').value.trim(),
     party: document.getElementById('c-party').value.trim(),
@@ -1914,11 +1879,11 @@ async function createCampaign() {
     created: new Date().toISOString()
   };
 
-  await writeJSON(`campaigns/${slug}/meta.json`, campaignMeta, `Create campaign: ${name}`);
+  await writeJSON(`campaigns/${slug}/meta.json`, meta, `Create campaign: ${name}`);
 
   const keys = ['sessions','npcs','creatures','locations','quests','inventory','theories','party','memory','reputation'];
   for (const key of keys) {
-    await writeJSON(`campaigns/${slug}/${key}.json`, [], `Init ${key} for ${name}`);
+    await writeJSON(`campaigns/${slug}/${key}.json`, [], `Init ${key}`);
   }
 
   await loadCampaigns();
@@ -1927,21 +1892,68 @@ async function createCampaign() {
 }
 
 // ══════════════════════════════════════════
-//  (the rest of your original script stays exactly the same)
+//  THE REST OF THE APP (unchanged)
 // ══════════════════════════════════════════
 
-function showPage(name) { /* unchanged */ }
-function openModal(id) { /* unchanged */ }
-function closeModal(id) { /* unchanged */ }
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page = document.getElementById('page-' + name);
+  if (page) page.classList.add('active');
+  const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
+  if (nav) nav.classList.add('active');
+  if (name === 'quests') renderQuests();
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+});
 
 function uid() { return 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
-async function saveData(key) { /* unchanged */ }
-function renderAll() { /* unchanged */ }
-function tagsHTML(tags) { /* unchanged */ }
-function trustStars(n) { /* unchanged */ }
-function emptyState(icon, title, sub, btnLabel, btnFn) { /* unchanged */ }
 
-// All the page-specific functions (sessions, npcs, creatures, …) are unchanged
+async function saveData(key) {
+  const id = state.currentCampaign;
+  if (!id) return;
+  return writeJSON(`campaigns/${id}/${key}.json`, state.data[key], `Update ${key}`);
+}
+
+function renderAll() {
+  renderSessions();
+  renderNPCs();
+  renderCreatures();
+  renderLocations();
+  renderQuests();
+  renderInventory();
+  renderTheories();
+  renderParty();
+  renderMemory();
+  renderReputation();
+}
+
+function tagsHTML(tags) {
+  if (!tags) return '';
+  return tags.split(',').map(t => t.trim()).filter(Boolean).map(t =>
+    `<span class="tag">${t.startsWith('#') ? t : '#'+t}</span>`
+  ).join('');
+}
+
+function trustStars(n) {
+  return Array.from({length:5}, (_,i) =>
+    `<span class="star ${i < n ? 'filled' : ''}">★</span>`
+  ).join('');
+}
+
+function emptyState(icon, title, sub, btnLabel, btnFn) {
+  return `<div class="empty">
+    <div class="empty-icon">${icon}</div>
+    <div class="empty-title">${title}</div>
+    <div class="empty-sub">${sub}</div>
+    <button class="btn btn-ghost" onclick="${btnFn}" style="margin-top:8px">${btnLabel}</button>
+  </div>`;
+}
 
 // ══════════════════════════════════════════
 //  SESSIONS
@@ -2839,38 +2851,20 @@ function escHtml(str) {
   }
 })();
 
-
-  window.showPage= showPage 
-  window.openModal= openModal 
-  window.closeModal= closeModal 
-  window.openNewCampaignModal= openNewCampaignModal 
-  window.createCampaign= createCampaign
-  window.saveSettings= saveSettings 
-  window.forceSyncAll= forceSyncAll 
-  window.openSessionModal= openSessionModal 
-  window.saveSession= saveSession 
-  window.viewSession= viewSession
-  window.deleteSession= deleteSession
-  window.openNPCModal= openNPCModal
-  window.saveNPC= saveNPC
-  window.deleteNPC= deleteNPC
-  window.openCreatureModal= openCreatureModal
-  window.saveCreature= saveCreature
-  window.deleteCreature= deleteCreature
-  window.openLocationModal= openLocationModal
-  window.saveLocation= saveLocation
-  window.deleteLocation= deleteLocation
-  window.openQuestModal= openQuestModal
-  window.saveQuest= saveQuest
-  window.deleteQuest= deleteQuest
-  window.openItemModal= openItemModal
-  window.saveItem= saveItem
-  window.openPartyModal= openPartyModal
-  window.saveParty= saveParty
-  window.openTheoryModal= openTheoryModal
-  window.saveTheory= saveTheory
-  window.openMemoryModal= openMemoryModal
-  window.saveMemory= saveMemory
-  window.openReputationModal= openReputationModal
-  window.saveReputation= saveReputation
+Object.assign(window, {
+  showPage, openModal, closeModal, openNewCampaignModal, createCampaign,
+  saveSettings, forceSyncAll,
+  openSessionModal, saveSession, viewSession, deleteSession, filterSessions,
+  openNPCModal, saveNPC, deleteNPC, filterNPCs,
+  openCreatureModal, saveCreature, deleteCreature, filterCreatures,
+  openLocationModal, saveLocation, deleteLocation, filterLocations,
+  openQuestModal, saveQuest, deleteQuest,
+  openItemModal, saveItem, deleteItem,
+  openTheoryModal, saveTheory, deleteTheory,
+  openPartyModal, saveParty, deleteParty,
+  openMemoryModal, saveMemory, deleteMemory,
+  openReputationModal, saveReputation, deleteReputation
+});
 </script>
+</body>
+</html>
